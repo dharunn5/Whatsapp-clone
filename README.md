@@ -19,6 +19,22 @@ This is a full-stack WhatsApp Web clone built using the MERN stack (MongoDB, Exp
 ## Prerequisites
 - Node.js installed on your machine.
 - MongoDB running locally on port `27017` (or modify `MONGO_URI` in `backend/.env`).
+  
+## Additional Requirements
+
+### Memurai (Redis for Windows)
+This project uses Memurai (Redis-compatible server) for real-time event handling and scaling Socket.io.
+
+#### Installation
+1. Download Memurai from: https://www.memurai.com/download
+2. Install and run Memurai (default port: 6379)
+
+#### Verify Installation
+Run:
+redis-cli ping
+
+Expected output:
+PONG
 
 ## Installation & Setup
 
