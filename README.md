@@ -9,6 +9,7 @@ This is a full-stack WhatsApp Web clone built using the MERN stack (MongoDB, Exp
 - **Database Persistence**: Messages and users are stored in MongoDB.
 - **Responsive UI**: A modern interface heavily inspired by WhatsApp Web using Tailwind CSS.
 - **Chat Features**: Auto-scroll to latest message, separate chat views.
+- **Game**: Two users can simultaneously play Rock-Paper-Scissor.
 
 ## Technologies Used
 - **Frontend**: React (Vite), Tailwind CSS, React Router, Axios, Socket.io-client, Lucide React (Icons).
@@ -33,7 +34,7 @@ This is a full-stack WhatsApp Web clone built using the MERN stack (MongoDB, Exp
 3. Start the server (runs on port 5000):
    ```bash
    node server.js
-   # Or using nodemon: npm run dev (if configured)
+   # Or using nodemon: npm run dev 
    ```
 
 ### 2. Frontend Setup
