@@ -55,4 +55,3 @@ This is a full-stack WhatsApp Web clone built using the MERN stack (MongoDB, Exp
 2. Open another tab or an incognito window with the same URL to log in as a second user.
 3. Enter unique usernames in both windows.
 4. Select the other user from the left chat list and start sending real-time messages!
-
