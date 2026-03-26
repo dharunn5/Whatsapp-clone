@@ -25,6 +25,7 @@ export default function ChatInterface({ currentUser, onLogout }) {
   const [lastResult, setLastResult] = useState(null);
   const [isWaiting, setIsWaiting]   = useState(false);
   const [gameError, setGameError]   = useState('');
+  const [gameRequest, setGameRequest] = useState(null);
 
   // ── Socket setup ───────────────────────────────────────────────────────────
   useEffect(() => {
@@ -35,6 +36,7 @@ export default function ChatInterface({ currentUser, onLogout }) {
     s.on('call_incoming', ({ callerId, callerName, type }) => {
       setActiveCall({ type: 'incoming', callType: type, withUser: { _id: callerId, username: callerName } });
     });
+    s.on('game_request', (req) => setGameRequest(req));
     return () => s.close();
   }, [currentUser]);
 
@@ -63,7 +65,7 @@ export default function ChatInterface({ currentUser, onLogout }) {
   const handleGameAction = (action) => {
     if (!socket) return;
     setGameError('');
-    if (action === '__start')      socket.emit('game_start', { userId: currentUser._id });
+    if (action === '__start')      socket.emit('game_start', { userId: currentUser._id, opponentId: selectedUser._id });
     else if (action === '__join')  socket.emit('game_join',  { userId: currentUser._id });
     else { setIsWaiting(true); socket.emit('game_move', { userId: currentUser._id, move: action }); }
   };
@@ -80,6 +82,20 @@ export default function ChatInterface({ currentUser, onLogout }) {
   };
 
   const toggleGame = () => { setGameError(''); setShowGame(v => !v); };
+
+  // ── Accept game request ───────────────────────────────────────────────────
+  const acceptGameRequest = () => {
+    if (!gameRequest || !socket) return;
+    const fromUser = { _id: gameRequest.fromUserId, username: gameRequest.fromUserName };
+    
+    abandonActiveGame();
+    setSelectedUser(fromUser);
+    setMobileView('chat');
+    setShowGame(true);
+    handleGameReset();
+    socket.emit('game_join', { userId: currentUser._id });
+    setGameRequest(null);
+  };
 
   // ── Abandon game helper ─────────────────────────────────────────────────────
   const abandonActiveGame = () => {
@@ -173,6 +189,35 @@ export default function ChatInterface({ currentUser, onLogout }) {
           onMove={handleGameAction}
           onReset={handleGameReset}
         />
+      )}
+
+      {/* ── Game Request Notification ── */}
+      {gameRequest && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 w-[90%] sm:w-80 animate-slide-down">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-xl shrink-0">
+              🎮
+            </div>
+            <div>
+              <p className="text-[#111b21] font-semibold text-sm leading-tight">{gameRequest.fromUserName}</p>
+              <p className="text-gray-500 text-xs">Wants to play Rock Paper Scissors!</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setGameRequest(null)}
+              className="flex-1 py-2 rounded-xl border border-gray-200 text-gray-600 font-medium text-sm hover:bg-gray-50 transition active:scale-95"
+            >
+              Decline
+            </button>
+            <button
+              onClick={acceptGameRequest}
+              className="flex-1 py-2 rounded-xl bg-[#25D366] text-white font-semibold text-sm hover:bg-[#20b858] transition active:scale-95 shadow-md shadow-green-200"
+            >
+              Accept
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

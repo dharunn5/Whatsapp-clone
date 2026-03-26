@@ -55,4 +55,26 @@ router.get('/:userId/:receiverId', async (req, res) => {
   }
 });
 
+// GET /api/messages/unseen/:userId - Get unseen message counts per sender
+router.get('/unseen/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    // Aggregate unseen messages grouped by sender
+    const unseenCounts = await Message.aggregate([
+      { $match: { receiver: new require('mongoose').Types.ObjectId(userId), seen: false } },
+      { $group: { _id: '$sender', count: { $sum: 1 } } }
+    ]);
+    
+    // Format array into a simple object { [senderId]: count }
+    const countsMap = {};
+    unseenCounts.forEach(item => {
+      countsMap[item._id.toString()] = item.count;
+    });
+    
+    res.json(countsMap);
+  } catch (err) {
+    res.status(500).json({ error: 'Server error: ' + err.message });
+  }
+});
+
 module.exports = router;

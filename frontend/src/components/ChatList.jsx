@@ -8,8 +8,38 @@ export default function ChatList({ currentUser, socket, onSelectUser, selectedUs
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [leaderboard, setLeaderboard]   = useState([]);
   const [loading, setLoading]           = useState(true);
+  const [unseenCounts, setUnseenCounts] = useState({});
 
-  useEffect(() => { fetchUsers(); }, []);
+  useEffect(() => { 
+    fetchUsers(); 
+    fetchUnseenCounts();
+  }, []);
+
+  const fetchUnseenCounts = async () => {
+    try {
+      const { data } = await axios.get(`http://localhost:5000/api/messages/unseen/${currentUser._id}`);
+      setUnseenCounts(data);
+    } catch (err) {
+      console.error('Error fetching unseen counts:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (!socket) return;
+    const handleReceive = (msg) => {
+      const sid = msg.sender?._id || msg.sender;
+      const rid = msg.receiver?._id || msg.receiver;
+      if (rid === currentUser._id && (!selectedUser || selectedUser._id !== sid)) {
+        setUnseenCounts(prev => ({
+          ...prev,
+          [sid]: (prev[sid] || 0) + 1
+        }));
+      }
+    };
+    socket.on('receive_message', handleReceive);
+    return () => socket.off('receive_message', handleReceive);
+  }, [socket, selectedUser, currentUser._id]);
+
 
   // Re-fetch when online status changes so last_seen is always fresh
   useEffect(() => {
@@ -171,7 +201,13 @@ export default function ChatList({ currentUser, socket, onSelectUser, selectedUs
           filteredUsers.map((user) => (
             <div
               key={user._id}
-              onClick={() => { onSelectUser(user); setShowLeaderboard(false); }}
+              onClick={() => { 
+                onSelectUser(user); 
+                setShowLeaderboard(false); 
+                if (unseenCounts[user._id]) {
+                  setUnseenCounts(prev => { const next = { ...prev }; delete next[user._id]; return next; });
+                }
+              }}
               className={`flex items-center px-4 py-3 cursor-pointer transition-colors border-b border-gray-50 active:bg-gray-100 ${
                 selectedUser?._id === user._id
                   ? 'bg-[#f0f2f5]'
@@ -191,9 +227,13 @@ export default function ChatList({ currentUser, socket, onSelectUser, selectedUs
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-1">
                   <h2 className="text-[15px] font-medium text-[#111b21] truncate">{user.username}</h2>
-                  {onlineUserIds?.has(user._id) && (
+                  {unseenCounts[user._id] ? (
+                    <div className="bg-[#25D366] text-white text-[11px] font-bold px-1.5 py-0.5 min-w-[20px] h-5 rounded-full flex items-center justify-center shrink-0 shadow-sm">
+                      {unseenCounts[user._id]}
+                    </div>
+                  ) : onlineUserIds?.has(user._id) ? (
                     <span className="text-[10px] text-[#25D366] font-semibold shrink-0">Online</span>
-                  )}
+                  ) : null}
                 </div>
                 {onlineUserIds?.has(user._id) ? (
                   // Online: show game stats if available

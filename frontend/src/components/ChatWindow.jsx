@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { Send, Paperclip, Phone, Video, Gamepad2, ArrowLeft, X } from 'lucide-react';
+import { Send, Paperclip, Phone, Video, Gamepad2, ArrowLeft, X, Mic, Square, Trash2 } from 'lucide-react';
 
 export default function ChatWindow({
   currentUser, selectedUser, socket, isOnline, lastSeen,
@@ -12,6 +12,33 @@ export default function ChatWindow({
   const messagesEndRef              = useRef(null);
   const fileInputRef                = useRef(null);
   const inputRef                    = useRef(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recordingIntervalRef = useRef(null);
+
+  // Mark messages seen
+  useEffect(() => {
+    if (selectedUser && socket && messages.length > 0) {
+      const hasUnseen = messages.some(m => !m.seen && (m.sender?._id || m.sender) === selectedUser._id);
+      if (hasUnseen) {
+        socket.emit('mark_messages_seen', { userId: currentUser._id, senderId: selectedUser._id });
+      }
+    }
+  }, [selectedUser, socket, messages, currentUser._id]);
+
+  // Listen for messages seen
+  useEffect(() => {
+    if (!socket) return;
+    const handleSeen = ({ receiverId }) => {
+      if (selectedUser && receiverId === selectedUser._id) {
+        setMessages(prev => prev.map(m => (!m.seen && (m.sender?._id || m.sender) === currentUser._id) ? { ...m, seen: true } : m));
+      }
+    };
+    socket.on('messages_seen', handleSeen);
+    return () => socket.off('messages_seen', handleSeen);
+  }, [socket, selectedUser, currentUser._id]);
 
   useEffect(() => {
     if (selectedUser) { setIsLoading(true); fetchMessages(); }
@@ -78,6 +105,64 @@ export default function ChatWindow({
     };
     reader.readAsDataURL(file);
     e.target.value = '';
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const reader = new FileReader();
+        reader.onload = () => {
+          socket.emit('file_upload', {
+            userId: currentUser._id,
+            receiverId: selectedUser._id,
+            file: {
+              type: 'audio',
+              url: reader.result,
+              filename: `Voice message (${new Date().toLocaleTimeString()}).webm`,
+              size: audioBlob.size,
+            },
+          });
+        };
+        reader.readAsDataURL(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingIntervalRef.current = setInterval(() => setRecordingTime(prev => prev + 1), 1000);
+    } catch (err) {
+      console.error('Error starting recording:', err);
+      alert('Microphone access denied or error occurred.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.onstop = null;
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+      setIsRecording(false);
+      clearInterval(recordingIntervalRef.current);
+    }
   };
 
   const formatTime = (ds) =>
@@ -237,9 +322,13 @@ export default function ChatWindow({
                       ) : (
                         <p className="break-words leading-relaxed text-[14.5px] pr-10">{msg.text}</p>
                       )}
-                      <span className="absolute bottom-1.5 right-2.5 text-[10px] text-gray-400 whitespace-nowrap select-none">
+                      <span className="absolute bottom-1.5 right-2.5 text-[10px] text-gray-400 whitespace-nowrap select-none flex items-center gap-1">
                         {msg.createdAt ? formatTime(msg.createdAt) : ''}
-                        {isSender && <span className="ml-1 text-[#53bdeb]">✓✓</span>}
+                        {isSender && (
+                          <span className={msg.seen ? 'text-[#53bdeb]' : 'text-gray-400'}>
+                            {msg.seen ? '✓✓' : '✓✓'}
+                          </span>
+                        )}
                       </span>
                     </div>
                   </div>
@@ -253,36 +342,62 @@ export default function ChatWindow({
 
       {/* ── Input bar ── */}
       <div className="bg-[#f0f2f5] px-2 sm:px-4 py-2.5 flex items-center gap-1 sm:gap-2 min-h-[62px] z-10 border-t border-gray-200">
-        <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload}
-          accept="image/*,audio/*,.pdf,.doc,.docx,.txt" />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          title="Attach file"
-          className="p-2.5 rounded-full text-gray-500 hover:text-[#25D366] hover:bg-gray-200 active:bg-gray-300 transition shrink-0"
-        >
-          <Paperclip size={20} />
-        </button>
-        <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
-          <input
-            ref={inputRef}
-            type="text"
-            className="flex-1 bg-white rounded-full px-4 py-2.5 outline-none text-[15px] focus:ring-2 focus:ring-[#25D366]/30 shadow-sm placeholder:text-gray-400 min-w-0"
-            placeholder="Type a message"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-          />
-          <button
-            type="submit"
-            disabled={!newMessage.trim()}
-            className={`p-2.5 rounded-full transition shrink-0 ${
-              newMessage.trim()
-                ? 'bg-[#25D366] text-white hover:bg-[#20b858] shadow-md active:scale-95'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <Send size={20} />
-          </button>
-        </form>
+        {isRecording ? (
+          <div className="flex-1 flex items-center justify-between bg-white rounded-full px-4 py-2 animate-pulse-mild">
+            <div className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-[#111b21] font-medium">
+                {Math.floor(recordingTime / 60)}:{(recordingTime % 60).toString().padStart(2, '0')}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={cancelRecording} className="p-1.5 text-gray-400 hover:text-red-500 transition">
+                <Trash2 size={18} />
+              </button>
+              <button onClick={stopRecording} className="p-1.5 text-red-500 bg-red-50 rounded-full hover:bg-red-100 transition">
+                <Square size={16} fill="currentColor" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload}
+              accept="image/*,audio/*,.pdf,.doc,.docx,.txt" />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach file"
+              className="p-2.5 rounded-full text-gray-500 hover:text-[#25D366] hover:bg-gray-200 active:bg-gray-300 transition shrink-0"
+            >
+              <Paperclip size={20} />
+            </button>
+            <form onSubmit={handleSendMessage} className="flex-1 flex items-center gap-2 min-w-0">
+              <input
+                ref={inputRef}
+                type="text"
+                className="flex-1 bg-white rounded-full px-4 py-2.5 outline-none text-[15px] focus:ring-2 focus:ring-[#25D366]/30 shadow-sm placeholder:text-gray-400 min-w-0"
+                placeholder="Type a message"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+              />
+              {newMessage.trim() ? (
+                <button
+                  type="submit"
+                  className="p-2.5 rounded-full bg-[#25D366] text-white hover:bg-[#20b858] shadow-md active:scale-95 transition shrink-0"
+                >
+                  <Send size={20} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  className="p-2.5 rounded-full text-white bg-[#25D366] hover:bg-[#20b858] shadow-md transition shrink-0 active:scale-95"
+                >
+                  <Mic size={20} />
+                </button>
+              )}
+            </form>
+          </>
+        )}
       </div>
     </div>
   );

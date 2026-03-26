@@ -89,6 +89,24 @@ io.on('connection', async (socket) => {
     }
   });
 
+  // ── mark_messages_seen ────────────────────────────────────────────────────
+  socket.on('mark_messages_seen', async ({ userId, senderId }) => {
+    try {
+      const result = await Message.updateMany(
+        { receiver: userId, sender: senderId, seen: false },
+        { $set: { seen: true } }
+      );
+      if (result.modifiedCount > 0) {
+        const pair = [userId, senderId].sort().join('_');
+        await redisClient.del(`messages:${pair}`);
+        // Notify the sender that their messages were seen
+        await emitToUser(senderId, 'messages_seen', { receiverId: userId });
+      }
+    } catch (err) {
+      console.error('Error marking messages as seen:', err);
+    }
+  });
+
   // ── file_upload ───────────────────────────────────────────────────────────
   // data: { userId, receiverId, file: { type, url, filename, size } }
   socket.on('file_upload', async (data) => {
@@ -121,13 +139,23 @@ io.on('connection', async (socket) => {
   });
 
   // ── game_start ────────────────────────────────────────────────────────────
-  socket.on('game_start', async ({ userId }) => {
+  socket.on('game_start', async ({ userId, opponentId }) => {
     try {
       const { createGame } = require('./services/gameService');
       const result = await createGame(userId);
       if (result.alreadyInGame) return socket.emit('game_error', 'You are already in a game!');
       if (result.alreadyWaiting) return socket.emit('game_error', 'You already have a waiting game. Share the link!');
+      
       socket.emit('game_created', { session: result.session });
+      
+      // Notify opponent
+      if (opponentId) {
+        const caller = await User.findById(userId).select('username');
+        await emitToUser(opponentId, 'game_request', {
+          fromUserId: userId,
+          fromUserName: caller?.username
+        });
+      }
     } catch (err) {
       socket.emit('game_error', err.message);
     }
@@ -253,6 +281,15 @@ io.on('connection', async (socket) => {
       const currentSocketId = await redisClient.hget('online_users', userIdToRemove);
       if (currentSocketId === socket.id) {
         await redisClient.hdel('online_users', userIdToRemove);
+        
+        // Abandon any active game
+        try {
+          const { opponentId } = await abandonGame(userIdToRemove);
+          if (opponentId) {
+            await emitToUser(opponentId, 'game_ended', { reason: 'opponent_disconnected' });
+          }
+        } catch (err) {}
+
         // Update MongoDB last_seen + online_status
         await User.findByIdAndUpdate(userIdToRemove, {
           online_status: 'offline',
