@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Search, LogOut, UserCircle, Trophy, X, Medal } from 'lucide-react';
 
-export default function ChatList({ currentUser, socket, onSelectUser, selectedUser, onLogout, onlineUserIds }) {
+export default function ChatList({ currentUser, socket, onSelectUser, selectedUser, onLogout, onlineUserIds, onOpenProfile }) {
   const [users, setUsers]               = useState([]);
   const [searchQuery, setSearchQuery]   = useState('');
   const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -97,8 +97,16 @@ export default function ChatList({ currentUser, socket, onSelectUser, selectedUs
       {/* ── Header ── */}
       <div className="bg-[#f0f2f5] flex items-center justify-between px-4 py-3 min-h-[60px] border-b border-gray-200">
         <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div className="w-10 h-10 rounded-full bg-[#25D366]/20 flex items-center justify-center shrink-0">
-            <span className="text-[#25D366] font-bold text-sm uppercase">{currentUser.username[0]}</span>
+          <div 
+            className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center shrink-0 cursor-pointer overflow-hidden transition active:scale-95 shadow-sm"
+            onClick={onOpenProfile}
+            title="Profile details"
+          >
+            {currentUser.profilePhoto ? (
+              <img src={currentUser.profilePhoto} alt="Me" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-[#25D366] font-bold text-sm uppercase">{currentUser.username[0]}</span>
+            )}
           </div>
           <span className="font-semibold text-[#111b21] truncate text-[15px]">{currentUser.username}</span>
         </div>
@@ -216,8 +224,12 @@ export default function ChatList({ currentUser, socket, onSelectUser, selectedUs
             >
               {/* Avatar */}
               <div className="relative mr-3 shrink-0">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#25D366]/30 to-[#128C7E]/20 flex items-center justify-center">
-                  <span className="font-bold text-[#128C7E] text-base uppercase">{user.username[0]}</span>
+                <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden shadow-sm">
+                  {user.profilePhoto ? (
+                    <img src={user.profilePhoto} alt={user.username} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="font-bold text-[#128C7E] text-base uppercase">{user.username[0]}</span>
+                  )}
                 </div>
                 {onlineUserIds?.has(user._id) && (
                   <div className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-[#25D366] rounded-full border-2 border-white" />

@@ -4,6 +4,7 @@ import ChatList from './ChatList';
 import ChatWindow from './ChatWindow';
 import CallModal from './CallModal';
 import GameModal from './GameModal';
+import ProfileSettings from './ProfileSettings';
 
 const SOCKET_URL = 'http://localhost:5000';
 
@@ -11,6 +12,15 @@ export default function ChatInterface({ currentUser, onLogout }) {
   const [socket, setSocket]             = useState(null);
   const [selectedUser, setSelectedUser] = useState(null);
   const [onlineUserIds, setOnlineUserIds] = useState(new Set());
+
+  // ── Local current user ─────────────────────────────────────────────────────
+  const [localCurrentUser, setLocalCurrentUser] = useState(currentUser);
+  const [showProfile, setShowProfile] = useState(false);
+
+  const handleUpdateUser = (updated) => {
+    localStorage.setItem('chatUser', JSON.stringify(updated));
+    setLocalCurrentUser(updated);
+  };
 
   // ── Mobile view toggle ─────────────────────────────────────────────────────
   const [mobileView, setMobileView] = useState('list'); // 'list' | 'chat'
@@ -31,14 +41,14 @@ export default function ChatInterface({ currentUser, onLogout }) {
   useEffect(() => {
     const s = io(SOCKET_URL);
     setSocket(s);
-    s.on('connect', () => s.emit('join', currentUser._id));
+    s.on('connect', () => s.emit('join', localCurrentUser._id));
     s.on('online_users', (ids) => setOnlineUserIds(new Set(ids)));
-    s.on('call_incoming', ({ callerId, callerName, type }) => {
-      setActiveCall({ type: 'incoming', callType: type, withUser: { _id: callerId, username: callerName } });
+    s.on('call_incoming', ({ callerId, callerName, callerPhoto, type }) => {
+      setActiveCall({ type: 'incoming', callType: type, withUser: { _id: callerId, username: callerName, profilePhoto: callerPhoto } });
     });
     s.on('game_request', (req) => setGameRequest(req));
     return () => s.close();
-  }, [currentUser]);
+  }, [localCurrentUser._id]);
 
   // ── Game socket handlers ───────────────────────────────────────────────────
   const handleGameCreated = useCallback(() => { setGameStatus('created'); setGameError(''); }, []);
@@ -65,9 +75,9 @@ export default function ChatInterface({ currentUser, onLogout }) {
   const handleGameAction = (action) => {
     if (!socket) return;
     setGameError('');
-    if (action === '__start')      socket.emit('game_start', { userId: currentUser._id, opponentId: selectedUser._id });
-    else if (action === '__join')  socket.emit('game_join',  { userId: currentUser._id });
-    else { setIsWaiting(true); socket.emit('game_move', { userId: currentUser._id, move: action }); }
+    if (action === '__start')      socket.emit('game_start', { userId: localCurrentUser._id, opponentId: selectedUser._id });
+    else if (action === '__join')  socket.emit('game_join',  { userId: localCurrentUser._id });
+    else { setIsWaiting(true); socket.emit('game_move', { userId: localCurrentUser._id, move: action }); }
   };
 
   const handleGameReset = () => {
@@ -77,13 +87,12 @@ export default function ChatInterface({ currentUser, onLogout }) {
 
   const handleCallUser = (type) => {
     if (!selectedUser || !socket) return;
-    socket.emit('call_initiate', { callerId: currentUser._id, calleeId: selectedUser._id, type });
+    socket.emit('call_initiate', { callerId: localCurrentUser._id, calleeId: selectedUser._id, type });
     setActiveCall({ type: 'outgoing', callType: type, withUser: selectedUser });
   };
 
   const toggleGame = () => { setGameError(''); setShowGame(v => !v); };
 
-  // ── Accept game request ───────────────────────────────────────────────────
   const acceptGameRequest = () => {
     if (!gameRequest || !socket) return;
     const fromUser = { _id: gameRequest.fromUserId, username: gameRequest.fromUserName };
@@ -93,14 +102,13 @@ export default function ChatInterface({ currentUser, onLogout }) {
     setMobileView('chat');
     setShowGame(true);
     handleGameReset();
-    socket.emit('game_join', { userId: currentUser._id });
+    socket.emit('game_join', { userId: localCurrentUser._id });
     setGameRequest(null);
   };
 
-  // ── Abandon game helper ─────────────────────────────────────────────────────
   const abandonActiveGame = () => {
     if (socket && (gameStatus === 'created' || gameStatus === 'in_progress')) {
-      socket.emit('game_abandon', { userId: currentUser._id });
+      socket.emit('game_abandon', { userId: localCurrentUser._id });
     }
     handleGameReset();
     setShowGame(false);
@@ -123,17 +131,26 @@ export default function ChatInterface({ currentUser, onLogout }) {
       {/* On mobile: show only if mobileView==='list' */}
       <div className={`
         flex-shrink-0 flex flex-col bg-white border-r border-gray-200
-        w-full md:w-[350px] lg:w-[380px]
+        w-full md:w-[350px] lg:w-[380px] relative
         ${mobileView === 'chat' ? 'hidden md:flex' : 'flex'}
       `}>
-        <ChatList
-          currentUser={currentUser}
-          socket={socket}
-          onSelectUser={handleSelectUser}
-          selectedUser={selectedUser}
-          onLogout={onLogout}
-          onlineUserIds={onlineUserIds}
-        />
+        {showProfile ? (
+          <ProfileSettings
+            currentUser={localCurrentUser}
+            onUpdateUser={handleUpdateUser}
+            onClose={() => setShowProfile(false)}
+          />
+        ) : (
+          <ChatList
+            currentUser={localCurrentUser}
+            socket={socket}
+            onSelectUser={handleSelectUser}
+            selectedUser={selectedUser}
+            onLogout={onLogout}
+            onlineUserIds={onlineUserIds}
+            onOpenProfile={() => setShowProfile(true)}
+          />
+        )}
       </div>
 
       {/* ── Chat area ── */}
@@ -143,7 +160,7 @@ export default function ChatInterface({ currentUser, onLogout }) {
       `}>
         {selectedUser ? (
           <ChatWindow
-            currentUser={currentUser}
+            currentUser={localCurrentUser}
             selectedUser={selectedUser}
             socket={socket}
             isOnline={onlineUserIds.has(selectedUser._id)}
@@ -170,13 +187,13 @@ export default function ChatInterface({ currentUser, onLogout }) {
 
       {/* ── Call Modal ── */}
       {activeCall && (
-        <CallModal call={activeCall} currentUser={currentUser} socket={socket} onClose={() => setActiveCall(null)} />
+        <CallModal call={activeCall} currentUser={localCurrentUser} socket={socket} onClose={() => setActiveCall(null)} />
       )}
 
       {/* ── Game Modal ── */}
       {showGame && selectedUser && (
         <GameModal
-          currentUser={currentUser}
+          currentUser={localCurrentUser}
           selectedUser={selectedUser}
           socket={socket}
           onClose={() => setShowGame(false)}

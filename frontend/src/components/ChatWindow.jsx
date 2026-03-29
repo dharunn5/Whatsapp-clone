@@ -214,8 +214,12 @@ export default function ChatWindow({
 
         {/* Avatar */}
         <div className="relative mr-2 shrink-0">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#25D366]/30 to-[#128C7E]/20 flex items-center justify-center">
-            <span className="font-bold text-[#128C7E] text-sm uppercase">{selectedUser.username[0]}</span>
+          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden shadow-sm">
+            {selectedUser.profilePhoto ? (
+              <img src={selectedUser.profilePhoto} alt={selectedUser.username} className="w-full h-full object-cover" />
+            ) : (
+              <span className="font-bold text-[#128C7E] text-sm uppercase">{selectedUser.username[0]}</span>
+            )}
           </div>
           {isOnline && (
             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25D366] rounded-full border-2 border-[#f0f2f5]" />

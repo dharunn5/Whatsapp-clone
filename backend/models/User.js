@@ -7,6 +7,19 @@ const userSchema = new mongoose.Schema({
     unique: true,
     trim: true
   },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+  },
+  profilePhoto: { type: String, default: '' },
+  bio: { type: String, default: 'Hey there! I am using WhatsApp Web Clone.', trim: true },
   // Game stats
   wins:        { type: Number, default: 0 },
   losses:      { type: Number, default: 0 },

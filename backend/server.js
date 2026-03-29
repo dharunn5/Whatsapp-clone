@@ -18,7 +18,19 @@ app.use('/api/games',    require('./routes/games'));
 
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('MongoDB connected'))
+  .then(async () => {
+    console.log('MongoDB connected');
+    // Clear stale online sessions from previous server run
+    try {
+      await redisClient.del('online_users');
+      // Also reset mongoose statuses just in case
+      const User = require('./models/User');
+      await User.updateMany({}, { online_status: 'offline' });
+      await redisClient.del('users:all');
+    } catch (e) {
+      console.error('Cleanup error:', e);
+    }
+  })
   .catch(err => console.error('MongoDB connection error:', err));
 
 // ── Socket.io + Redis Adapter ─────────────────────────────────────────────────
@@ -74,7 +86,7 @@ io.on('connection', async (socket) => {
       const { sender, receiver, text } = data;
       const message = new Message({ sender, receiver, text });
       await message.save();
-      await message.populate('sender receiver', 'username');
+      await message.populate('sender receiver', 'username profilePhoto');
 
       const pair = [sender, receiver].sort().join('_');
       await redisClient.del(`messages:${pair}`);
@@ -122,7 +134,7 @@ io.on('connection', async (socket) => {
         fileData: record,
       });
       await message.save();
-      await message.populate('sender receiver', 'username');
+      await message.populate('sender receiver', 'username profilePhoto');
 
       const pair = [userId, receiverId].sort().join('_');
       await redisClient.del(`messages:${pair}`);
@@ -150,10 +162,11 @@ io.on('connection', async (socket) => {
       
       // Notify opponent
       if (opponentId) {
-        const caller = await User.findById(userId).select('username');
+        const caller = await User.findById(userId).select('username profilePhoto');
         await emitToUser(opponentId, 'game_request', {
           fromUserId: userId,
-          fromUserName: caller?.username
+          fromUserName: caller?.username,
+          fromUserPhoto: caller?.profilePhoto
         });
       }
     } catch (err) {
@@ -170,13 +183,13 @@ io.on('connection', async (socket) => {
       if (result.error === 'no_waiting_session') return socket.emit('game_error', 'No waiting game. Ask someone to start one first!');
 
       const { session, player1Id } = result;
-      const player2 = await User.findById(userId).select('username');
-      const player1 = await User.findById(player1Id).select('username');
+      const player2 = await User.findById(userId).select('username profilePhoto');
+      const player1 = await User.findById(player1Id).select('username profilePhoto');
 
       const gameState = {
         sessionId: session._id,
-        player1: { id: player1Id, username: player1?.username },
-        player2: { id: userId, username: player2?.username },
+        player1: { id: player1Id, username: player1?.username, profilePhoto: player1?.profilePhoto },
+        player2: { id: userId, username: player2?.username, profilePhoto: player2?.profilePhoto },
         round: 1, scores: { [player1Id]: 0, [userId]: 0 },
         status: 'in_progress',
       };
@@ -236,10 +249,10 @@ io.on('connection', async (socket) => {
       if (result.error === 'callee_busy') {
         return socket.emit('call_error', 'User is already on a call.');
       }
-      const caller = await User.findById(callerId).select('username');
+      const caller = await User.findById(callerId).select('username profilePhoto');
       socket.emit('call_ringing', { calleeId, type });
       await emitToUser(calleeId, 'call_incoming', {
-        callerId, callerName: caller?.username, type
+        callerId, callerName: caller?.username, callerPhoto: caller?.profilePhoto, type
       });
     } catch (err) {
       socket.emit('call_error', err.message);
@@ -256,13 +269,28 @@ io.on('connection', async (socket) => {
 
       if (!callInfo) return socket.emit('call_error', 'No incoming call found.');
 
-      const callee = await User.findById(calleeId).select('username');
-      const payload = { calleeId, calleeName: callee?.username, response };
+      const callee = await User.findById(calleeId).select('username profilePhoto');
+      const payload = { calleeId, calleeName: callee?.username, calleePhoto: callee?.profilePhoto, response };
 
       socket.emit('call_response_sent', payload);
       await emitToUser(callInfo.caller, 'call_response', payload);
     } catch (err) {
       socket.emit('call_error', err.message);
+    }
+  });
+
+  // ── call_end ──────────────────────────────────────────────────────────────
+  socket.on('call_end', async ({ opponentId }) => {
+    try {
+      if (opponentId) {
+        // Clear pending calls in redis if any exist
+        await redisClient.del(`call:${opponentId}`);
+        await redisClient.del(`call:${socket.userId}`);
+        
+        await emitToUser(opponentId, 'call_ended', {});
+      }
+    } catch (err) {
+      console.error('Error in call_end:', err);
     }
   });
 
